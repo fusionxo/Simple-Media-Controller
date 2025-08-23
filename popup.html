@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Media Controller</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Custom scrollbar for a cleaner look in WebKit browsers */
+    ::-webkit-scrollbar {
+      width: 5px;
+    }
+    .dark ::-webkit-scrollbar-track {
+      background: #374151; /* gray-700 */
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #a3a3a3; /* neutral-400 */
+      border-radius: 5px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #737373; /* neutral-500 */
+    }
+
+    /* Custom styles for range inputs */
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 6px;
+      background: #4b5563; /* gray-600 */
+      border-radius: 3px;
+      outline: none;
+      opacity: 0.8;
+      transition: opacity .2s;
+    }
+    input[type="range"]:hover {
+      opacity: 1;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      background: #d1d5db; /* gray-300 */
+      cursor: pointer;
+      border-radius: 50%;
+      border: 2px solid #374151; /* gray-700 */
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      background: #d1d5db; /* gray-300 */
+      cursor: pointer;
+      border-radius: 50%;
+      border: 2px solid #374151; /* gray-700 */
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+  </style>
+</head>
+<body class="bg-slate-800 text-slate-200 w-[400px] max-h-[550px] overflow-y-auto">
+  
+  <!-- The container where the media controls will be dynamically injected by popup.js -->
+  <div id="app-container" class="p-2">
+    <!-- Initial loading state, will be removed by JS after the first scan -->
+    <div id="initial-loader" class="flex flex-col items-center justify-center text-center text-slate-400 p-8 h-48">
+        <svg class="animate-spin h-8 w-8 text-slate-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <p>Scanning for media...</p>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
