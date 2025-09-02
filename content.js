@@ -2,6 +2,39 @@
 
 const mediaElements = new Map();
 
+/**
+ * --- NEW ---
+ * This function is called for new and existing media elements.
+ * It asks the background script for a stored volume and applies it.
+ * @param {HTMLMediaElement} element - The <video> or <audio> element.
+ */
+async function applyStoredVolume(element) {
+    // Some sites create video elements before they are ready.
+    // We'll wait for the 'loadedmetadata' event to ensure we can set the volume.
+    if (element.readyState === 0) {
+        element.addEventListener('loadedmetadata', () => applyStoredVolume(element), { once: true });
+        return;
+    }
+
+    try {
+        const hostname = window.location.hostname;
+        // Ask the background script for the stored volume for this website.
+        const storedVolume = await browser.runtime.sendMessage({ cmd: "getVolume", hostname: hostname });
+
+        // If a volume is stored (is not null or undefined)
+        if (storedVolume !== null && typeof storedVolume !== 'undefined') {
+            // Check if the volume is already correct to avoid a flicker or unnecessary event firing.
+            if (element.volume.toFixed(2) !== storedVolume.toFixed(2)) {
+                console.log(`Media Controller: Applying stored volume ${storedVolume} to a media element for ${hostname}`);
+                element.volume = storedVolume;
+            }
+        }
+    } catch (e) {
+        console.error("Media Controller: Could not apply stored volume.", e);
+    }
+}
+
+
 function getThumbnail(video) {
     try {
         let canvas = document.createElement("canvas");
@@ -67,14 +100,13 @@ function shouldIncludeInstagramMedia(el) {
 }
 
 function handleQuery() {
-    console.debug("handleQuery - scanning for media");
-    
     const playingElements = [];
     const visibleElements = [];
     const otherElements = [];
     
     const els = document.querySelectorAll("video,audio");
     let count = 1;
+    mediaElements.clear(); // Clear the map to only include current elements
     
     for (const el of els) {
         mediaElements.set(count, el);
@@ -84,7 +116,6 @@ function handleQuery() {
             !isNaN(el.duration) &&
             el.duration > 0 // Ensure valid duration
         ) {
-            // Apply Instagram filtering only for videos, not audio
             if (!shouldIncludeInstagramMedia(el)) {
                 count++;
                 continue;
@@ -110,13 +141,11 @@ function handleQuery() {
                 id: count,
                 bgcolor: thumbnailData.bgcolor,
                 fgcolor: thumbnailData.fgcolor,
-                visible: isVisible || isAudio // Audio is considered "visible" for UI purposes
+                visible: isVisible || isAudio
             };
             
-            // Prioritize by playing status
             if (isPlaying) {
                 playingElements.push(mediaInfo);
-                console.debug(`Found playing ${mediaInfo.type}: ID ${count}`);
             } else if (isVisible || isAudio) {
                 visibleElements.push(mediaInfo);
             } else {
@@ -127,20 +156,16 @@ function handleQuery() {
         count++;
     }
     
-    // Return prioritized media
     const result = [
         ...playingElements,
-        ...visibleElements.slice(0, 3), // Allow more visible elements
+        ...visibleElements.slice(0, 3),
         ...otherElements.slice(0, 1)
     ];
     
-    console.debug(`Media scan complete: ${result.length} total (${playingElements.length} playing)`);
     return result;
 }
 
-// Rest of the functions remain the same
 function handlePause(ids) {
-    console.debug("handlePause", ids);
     for (const id of ids) {
         if (mediaElements.has(id)) {
             mediaElements.get(id).pause();
@@ -150,7 +175,6 @@ function handlePause(ids) {
 }
 
 function handlePauseAll() {
-    console.debug("handlePauseAll");
     for (const [, el] of mediaElements) {
         if (!el.paused) {
             el.pause();
@@ -160,7 +184,6 @@ function handlePauseAll() {
 }
 
 function handlePlay(ids) {
-    console.debug("handlePlay", ids);
     for (const id of ids) {
         if (mediaElements.has(id)) {
             mediaElements.get(id).play();
@@ -170,7 +193,6 @@ function handlePlay(ids) {
 }
 
 function handleMute(ids) {
-    console.debug("handleMute", ids);
     for (const id of ids) {
         if (mediaElements.has(id)) {
             mediaElements.get(id).muted = true;
@@ -180,7 +202,6 @@ function handleMute(ids) {
 }
 
 function handleUnMute(ids) {
-    console.debug("handleUnMute", ids);
     for (const id of ids) {
         if (mediaElements.has(id)) {
             mediaElements.get(id).muted = false;
@@ -195,7 +216,6 @@ async function handleVolume(id, volume) {
             mediaElements.get(id).volume = volume;
             return true;
         } catch (e) {
-            console.error("Volume control error:", e);
             return false;
         }
     }
@@ -208,7 +228,6 @@ async function handleCurrentTime(id, currentTime) {
             mediaElements.get(id).currentTime = currentTime;
             return true;
         } catch (e) {
-            console.error("Current time control error:", e);
             return false;
         }
     }
@@ -216,7 +235,6 @@ async function handleCurrentTime(id, currentTime) {
 }
 
 async function handleFocus(id) {
-    console.debug("handleFocus", id);
     if (mediaElements.has(id)) {
         try {
             mediaElements.get(id).scrollIntoView({
@@ -226,7 +244,6 @@ async function handleFocus(id) {
             });
             return true;
         } catch (e) {
-            console.error("Focus error:", e);
             return false;
         }
     }
@@ -234,7 +251,6 @@ async function handleFocus(id) {
 }
 
 browser.runtime.onMessage.addListener((request) => {
-    console.debug("onMessage", JSON.stringify(request));
     switch (request.cmd) {
         case "query":
             return Promise.resolve(handleQuery());
@@ -255,18 +271,46 @@ browser.runtime.onMessage.addListener((request) => {
         case "focus":
             return Promise.resolve(handleFocus(request.id));
         default:
-            console.error("unknown request", request);
             return Promise.resolve(false);
     }
 });
+
+
+/**
+ * --- NEW ---
+ * This MutationObserver watches the page for new videos or audio being added,
+ * which is common on sites with infinite scrolling (like Instagram Reels or YouTube).
+ * When a new element appears, it automatically applies the stored volume.
+ */
+const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+                // Check if the added node is a media element itself
+                if (node.tagName === 'VIDEO' || node.tagName === 'AUDIO') {
+                    applyStoredVolume(node);
+                }
+                // Also check if any media elements were added within this new node
+                node.querySelectorAll('video, audio').forEach(applyStoredVolume);
+            }
+        }
+    }
+});
+
+// Start observing the entire document body for changes.
+observer.observe(document.body, { childList: true, subtree: true });
+
+// --- NEW ---
+// Apply stored volume to any media elements that are already on the page when it first loads.
+document.querySelectorAll('video, audio').forEach(applyStoredVolume);
+
 
 console.debug("content.js loaded - media controller ready");
 
 // Inject attach.js for unattached audio elements
 setTimeout(() => {
-    console.debug("injecting attach.js");
     var s = document.createElement("script");
     s.src = browser.runtime.getURL("attach.js");
     s.onload = () => s.remove();
-    document.head.appendChild(s);
+    (document.head || document.documentElement).appendChild(s);
 }, 2000);

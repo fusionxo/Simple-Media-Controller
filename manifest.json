@@ -5,6 +5,9 @@
     "default_area": "navbar",
     "default_popup": "popup.html"
   },
+  "background": {
+    "scripts": ["background.js"]
+  },
   "content_scripts": [
     {
       "js": ["content.js"],
@@ -17,8 +20,8 @@
   },
   "manifest_version": 2,
   "name": "Media Controller",
-  "permissions": ["tabs"],
-  "version": "1.0.1",
+  "permissions": ["tabs", "storage"],
+  "version": "1.1.0",
   "web_accessible_resources": ["attach.js"],
   "browser_specific_settings": {
     "gecko": {

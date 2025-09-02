@@ -7,9 +7,25 @@ let isUserInteracting = false; // Flag to pause updates when user is using a sli
 let interactionTimeout;
 const REFRESH_RATE_MS = 1500; // How often to check for media updates
 const INTERACTION_PAUSE_MS = 500; // How long to wait after slider use before resuming updates
-const siteVolumes = new Map(); // Stores the "locked" volume for each hostname
+let siteVolumes = new Map(); // Stores the "locked" volume for each hostname, synced from background
 
 // --- CORE LOGIC ---
+
+/**
+ * Loads all volume settings from the persistent background script.
+ */
+async function syncVolumesFromBackground() {
+    if (isUserInteracting) return; // Don't sync while user is sliding
+    try {
+        const volumesObject = await browser.runtime.sendMessage({ cmd: "getAllVolumes" });
+        if (volumesObject) {
+            siteVolumes = new Map(Object.entries(volumesObject));
+        }
+    } catch (e) {
+        console.error("Could not sync volumes from background script:", e);
+    }
+}
+
 
 /**
  * Main function to refresh the media list displayed in the popup.
@@ -21,6 +37,9 @@ async function refreshMediaList() {
     }
 
     try {
+        // Sync volumes first to ensure we have the latest settings
+        await syncVolumesFromBackground();
+
         const allTabs = await browser.tabs.query({ url: ["<all_urls>"], discarded: false });
         const activeTabs = await browser.tabs.query({ active: true, currentWindow: true });
         const activeTab = activeTabs[0];
@@ -31,6 +50,7 @@ async function refreshMediaList() {
                 const mediaElements = await browser.tabs.sendMessage(tab.id, { cmd: "query" });
                 if (mediaElements && mediaElements.length > 0) {
                     const hostname = new URL(tab.url).hostname;
+                    // This logic remains useful to enforce the volume if the page somehow changed it.
                     if (siteVolumes.has(hostname)) {
                         const lockedVolume = siteVolumes.get(hostname);
                         mediaElements.forEach(media => {
@@ -174,10 +194,8 @@ function createSiteHeader(hostname, tabs) {
     const volumeControl = document.createElement('div');
     volumeControl.className = 'flex items-center w-1/2 max-w-[140px]';
     
+    // Use the synced volume, or fallback to the media's current volume or 100%
     const initialVolume = siteVolumes.get(hostname) ?? tabs[0]?.mediaElements[0]?.volume ?? 1;
-    if (!siteVolumes.has(hostname)) {
-        siteVolumes.set(hostname, initialVolume);
-    }
     
     volumeControl.innerHTML = `
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" class="text-slate-400 mr-2"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
@@ -189,7 +207,14 @@ function createSiteHeader(hostname, tabs) {
     volumeSlider.addEventListener('touchstart', startInteraction);
     volumeSlider.addEventListener('input', () => {
         const newVolume = volumeSlider.value / 100;
+        
+        // Update local state for immediate UI feedback
         siteVolumes.set(hostname, newVolume);
+
+        // **MODIFIED**: Send the new volume to the background script for persistence
+        browser.runtime.sendMessage({ cmd: "setVolume", hostname, volume: newVolume });
+
+        // Update all media on the page for this site
         tabs.forEach(({ tab, mediaElements }) => {
             mediaElements.forEach(media => {
                 browser.tabs.sendMessage(tab.id, { cmd: "volume", id: media.id, volume: newVolume });
@@ -431,7 +456,7 @@ function formatTime(seconds) {
 }
 
 function initialize() {
-    refreshMediaList();
+    refreshMediaList(); // Initial refresh
     refreshInterval = setInterval(refreshMediaList, REFRESH_RATE_MS);
 
     window.addEventListener('beforeunload', () => {
